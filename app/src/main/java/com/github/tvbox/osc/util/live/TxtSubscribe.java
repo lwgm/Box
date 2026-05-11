@@ -15,16 +15,25 @@ public class TxtSubscribe {
 
     private static final Pattern NAME_PATTERN = Pattern.compile(".*,(.+?)$");
     private static final Pattern GROUP_PATTERN = Pattern.compile("group-title=\"(.*?)\"");
+    private static final Pattern LOGO_PATTERN = Pattern.compile("tvg-logo=\"(.*?)\"");
 
     public static void parse(LinkedHashMap<String, LinkedHashMap<String, ArrayList<String>>> linkedHashMap, String str) {
+        parse(linkedHashMap, null, str);
+    }
+
+    public static void parse(LinkedHashMap<String, LinkedHashMap<String, ArrayList<String>>> linkedHashMap,
+                             LinkedHashMap<String, LinkedHashMap<String, String>> channelLogoMap,
+                             String str) {
         if (str.startsWith("#EXTM3U")) {
-            parseM3u(linkedHashMap, str);
+            parseM3u(linkedHashMap, channelLogoMap, str);
         } else {
             parseTxt(linkedHashMap, str);
         }
     }
 
-    private static void parseM3u(LinkedHashMap<String, LinkedHashMap<String, ArrayList<String>>> linkedHashMap, String str) {
+    private static void parseM3u(LinkedHashMap<String, LinkedHashMap<String, ArrayList<String>>> linkedHashMap,
+                                 LinkedHashMap<String, LinkedHashMap<String, String>> channelLogoMap,
+                                 String str) {
         ArrayList<String> urls;
         try {
             BufferedReader bufferedReader = new BufferedReader(new StringReader(str));
@@ -37,6 +46,7 @@ public class TxtSubscribe {
                 if (line.startsWith("#EXTINF")) {
                     String name = getStrByRegex(NAME_PATTERN, line);
                     String group = getStrByRegex(GROUP_PATTERN, line);
+                    String logo = getStrByRegex(LOGO_PATTERN, line);
                     // 此时再读取一行，就是对应的 url 链接了
                     String url = bufferedReader.readLine().trim();
                     if (linkedHashMap.containsKey(group)) {
@@ -52,6 +62,17 @@ public class TxtSubscribe {
                         channelTemp.put(name, urls);
                     }
                     if (null != urls && !urls.contains(url)) urls.add(url);
+
+                    if (channelLogoMap != null && logo != null && !logo.isEmpty()) {
+                        LinkedHashMap<String, String> groupLogoMap = channelLogoMap.get(group);
+                        if (groupLogoMap == null) {
+                            groupLogoMap = new LinkedHashMap<>();
+                            channelLogoMap.put(group, groupLogoMap);
+                        }
+                        if (!groupLogoMap.containsKey(name)) {
+                            groupLogoMap.put(name, logo);
+                        }
+                    }
                 }
             }
             bufferedReader.close();
@@ -122,10 +143,16 @@ public class TxtSubscribe {
     }
 
     public static JsonArray live2JsonArray(LinkedHashMap<String, LinkedHashMap<String, ArrayList<String>>> linkedHashMap) {
+        return live2JsonArray(linkedHashMap, null);
+    }
+
+    public static JsonArray live2JsonArray(LinkedHashMap<String, LinkedHashMap<String, ArrayList<String>>> linkedHashMap,
+                                           LinkedHashMap<String, LinkedHashMap<String, String>> channelLogoMap) {
         JsonArray jsonarr = new JsonArray();
         for (String str : linkedHashMap.keySet()) {
             JsonArray jsonarr2 = new JsonArray();
             LinkedHashMap<String, ArrayList<String>> linkedHashMap2 = linkedHashMap.get(str);
+            LinkedHashMap<String, String> groupLogoMap = channelLogoMap == null ? null : channelLogoMap.get(str);
             if (!linkedHashMap2.isEmpty()) {
                 for (String str2 : linkedHashMap2.keySet()) {
                     ArrayList<String> arrayList = linkedHashMap2.get(str2);
@@ -137,6 +164,9 @@ public class TxtSubscribe {
                         JsonObject jsonobj = new JsonObject();
                         try {
                             jsonobj.addProperty("name", str2);
+                            if (groupLogoMap != null && groupLogoMap.containsKey(str2)) {
+                                jsonobj.addProperty("logo", groupLogoMap.get(str2));
+                            }
                             jsonobj.add("urls", jsonarr3);
                         } catch (Throwable e) {
                         }
