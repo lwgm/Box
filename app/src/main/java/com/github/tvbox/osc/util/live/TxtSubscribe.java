@@ -69,9 +69,7 @@ public class TxtSubscribe {
                             groupLogoMap = new LinkedHashMap<>();
                             channelLogoMap.put(group, groupLogoMap);
                         }
-                        if (!groupLogoMap.containsKey(name)) {
-                            groupLogoMap.put(name, logo);
-                        }
+                        groupLogoMap.put(name, logo);
                     }
                 }
             }
