@@ -14,7 +14,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # ✅ 添加这行，允许创建 Release
+      contents: write
     
     steps:
       - name: Checkout your fork
@@ -88,51 +88,70 @@ jobs:
       - name: Build Release APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --build-cache --parallel --daemon
+          ./gradlew assembleRelease --build-cache --parallel --daemon --warning-mode all
           
-      - name: Find and Prepare APK
+      - name: Prepare APK (处理所有架构)
         run: |
+          rm -rf apk/
           mkdir -p apk/
-          # ✅ 修复：搜索所有可能的 APK 路径
-          echo "Searching for APK files..."
-          find app/build/outputs/apk -name "*.apk" -type f
           
-          # 找到第一个非测试的 APK（排除 non-minified 和 test）
-          for file in $(find app/build/outputs/apk -name "*.apk" -type f | grep -v "non-minified" | grep -v "test"); do
-            if [[ -f "$file" ]]; then
-              cp "$file" "apk/Box_MyFork_${{ env.tag }}.apk"
-              echo "✅ APK copied from: $file"
-              echo "APK_PATH=apk/Box_MyFork_${{ env.tag }}.apk" >> $GITHUB_ENV
-              break
+          echo "Searching for APK files..."
+          find ~ -name "*release*.apk" -type f 2>/dev/null
+          
+          for file in `find ~ -name "*release*.apk" -print 2>/dev/null`; do
+            base=$(basename "$file")
+            
+            # 提取架构信息
+            if [[ "$base" == *"arm64"* ]]; then
+              arch="arm64"
+            elif [[ "$base" == *"armeabi"* ]]; then
+              arch="armeabi"
+            else
+              arch="generic"
             fi
+            
+            # 提取平台类型
+            if [[ "$base" == *"hisense"* ]]; then
+              platform="hisense"
+            else
+              platform="generic"
+            fi
+            
+            # 提取 Python/Java 版本
+            if [[ "$base" == *"python"* ]]; then
+              version="python"
+            else
+              version="java"
+            fi
+            
+            new_name="TVBox_${{ env.tag }}-${arch}-${platform}-${version}.apk"
+            cp "$file" "apk/$new_name"
+            echo "✅ Copied: $new_name"
           done
           
-          # 验证 APK 是否存在
-          if [ ! -f "apk/Box_MyFork_${{ env.tag }}.apk" ]; then
-            echo "❌ No APK found!"
-            ls -la app/build/outputs/apk/
-            exit 1
-          fi
-          
+          echo "=== All APK files ==="
           ls -la apk/
+          
+          count=$(ls -1 apk/*.apk 2>/dev/null | wc -l)
+          echo "Total APKs: $count"
           
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: Box-MyFork-${{ env.tag }}
+          name: TVBox-Build-${{ env.tag }}
           path: apk/*.apk
-          if-no-files-found: error  # ✅ 如果没找到文件就报错
+          if-no-files-found: error
           
       - name: Create Release
         if: ${{ !inputs.dontpublish }}
         uses: ncipollo/release-action@v1
         with:
-          name: Release-${{ env.tag }}
-          tag: Release-${{ env.tag }}
+          name: ${{ env.tag }}
+          tag: ${{ env.tag }}
           body: |
             ## Auto Build Release
             - Commit: ${{ env.commitS }}
             - Build Time: ${{ env.tag }}
           artifacts: apk/*.apk
           allowUpdates: true
-          token: ${{ secrets.GITHUB_TOKEN }}  # ✅ 显式指定 token
+          token: ${{ secrets.GITHUB_TOKEN }}
