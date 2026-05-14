@@ -3,8 +3,11 @@ package com.github.tvbox.osc.ui.dialog;
 import android.app.Activity;
 import android.content.Context;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -44,6 +47,12 @@ public class ApiDialog extends BaseDialog {
     private final EditText inputLive;
     private final EditText inputEPG;
     private final EditText inputProxy;
+    private final Spinner spinnerApiMode;
+    private final Spinner spinnerLiveMode;
+    private final Spinner spinnerEpgMode;
+    private final EditText inputSourceUser;
+    private final EditText inputSourcePass;
+    private final String[] sourceModes = {"默认", "openlist"};
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void refresh(RefreshEvent event) {
@@ -78,6 +87,29 @@ public class ApiDialog extends BaseDialog {
         inputProxy = findViewById(R.id.input_proxy);
         inputProxy.setText(Hawk.get(HawkConfig.PROXY_SERVER, ""));
 
+        ArrayAdapter<String> modeAdapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_item, sourceModes);
+        modeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+
+        spinnerApiMode = findViewById(R.id.spinner_api_mode);
+        spinnerApiMode.setAdapter(modeAdapter);
+        String savedApiMode = Hawk.get(HawkConfig.API_MODE, "默认");
+        spinnerApiMode.setSelection(savedApiMode.equals("openlist") ? 1 : 0);
+
+        spinnerLiveMode = findViewById(R.id.spinner_live_mode);
+        spinnerLiveMode.setAdapter(modeAdapter);
+        String savedLiveMode = Hawk.get(HawkConfig.LIVE_MODE, "默认");
+        spinnerLiveMode.setSelection(savedLiveMode.equals("openlist") ? 1 : 0);
+
+        spinnerEpgMode = findViewById(R.id.spinner_epg_mode);
+        spinnerEpgMode.setAdapter(modeAdapter);
+        String savedEpgMode = Hawk.get(HawkConfig.EPG_MODE, "默认");
+        spinnerEpgMode.setSelection(savedEpgMode.equals("openlist") ? 1 : 0);
+
+        inputSourceUser = findViewById(R.id.input_source_user);
+        inputSourceUser.setText(Hawk.get(HawkConfig.API_SOURCE_USER, ""));
+        inputSourcePass = findViewById(R.id.input_source_pass);
+        inputSourcePass.setText(Hawk.get(HawkConfig.API_SOURCE_PASS, ""));
+
         findViewById(R.id.inputSubmit).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -85,12 +117,23 @@ public class ApiDialog extends BaseDialog {
                 String newLive = inputLive.getText().toString().trim();
                 String newEPG = inputEPG.getText().toString().trim();
                 String newProxyServer = inputProxy.getText().toString().trim();
+                String newSourceMode = sourceModes[spinnerApiMode.getSelectedItemPosition()];
+                String newLiveMode = sourceModes[spinnerLiveMode.getSelectedItemPosition()];
+                String newEpgMode = sourceModes[spinnerEpgMode.getSelectedItemPosition()];
+                String newSourceUser = inputSourceUser.getText().toString().trim();
+                String newSourcePass = inputSourcePass.getText().toString().trim();
                 // takagen99: Convert all to clan://localhost format
                 if (newApi.startsWith("file://")) {
                     newApi = newApi.replace("file://", "clan://localhost/");
                 } else if (newApi.startsWith("./")) {
                     newApi = newApi.replace("./", "clan://localhost/");
                 }
+                // Save source modes & credentials
+                Hawk.put(HawkConfig.API_MODE, newSourceMode);
+                Hawk.put(HawkConfig.LIVE_MODE, newLiveMode);
+                Hawk.put(HawkConfig.EPG_MODE, newEpgMode);
+                Hawk.put(HawkConfig.API_SOURCE_USER, newSourceUser);
+                Hawk.put(HawkConfig.API_SOURCE_PASS, newSourcePass);
                 if (!newApi.isEmpty()) {
                     ArrayList<String> history = Hawk.get(HawkConfig.API_HISTORY, new ArrayList<String>());
                     if (!history.contains(newApi))

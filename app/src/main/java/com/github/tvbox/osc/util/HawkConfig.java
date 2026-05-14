@@ -18,6 +18,11 @@ public class HawkConfig {
     public static final String EPG_URL = "epg_url";
     public static final String EPG_HISTORY = "epg_history";
     public static final String PROXY_SERVER = "proxy_server";
+    public static final String API_MODE = "api_mode";
+    public static final String LIVE_MODE = "live_mode";
+    public static final String EPG_MODE = "epg_mode";
+    public static final String API_SOURCE_USER = "api_source_user";
+    public static final String API_SOURCE_PASS = "api_source_pass";
     // Settings
     public static final String DEBUG_OPEN = "debug_open";
     public static final String HOME_API = "home_api";

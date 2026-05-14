@@ -7,6 +7,7 @@ import java.io.BufferedReader;
 import java.io.StringReader;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -15,6 +16,9 @@ public class TxtSubscribe {
 
     private static final Pattern NAME_PATTERN = Pattern.compile(".*,(.+?)$");
     private static final Pattern GROUP_PATTERN = Pattern.compile("group-title=\"(.*?)\"");
+    private static final Pattern LOGO_PATTERN = Pattern.compile("tvg-logo=\"(.*?)\"");
+
+    public static HashMap<String, String> tvgLogoMap = new HashMap<>();
 
     public static void parse(LinkedHashMap<String, LinkedHashMap<String, ArrayList<String>>> linkedHashMap, String str) {
         if (str.startsWith("#EXTM3U")) {
@@ -37,6 +41,10 @@ public class TxtSubscribe {
                 if (line.startsWith("#EXTINF")) {
                     String name = getStrByRegex(NAME_PATTERN, line);
                     String group = getStrByRegex(GROUP_PATTERN, line);
+                    String logo = getStrByRegex(LOGO_PATTERN, line);
+                    if (!logo.equals("未命名")) {
+                        tvgLogoMap.put(name, logo);
+                    }
                     // 此时再读取一行，就是对应的 url 链接了
                     String url = bufferedReader.readLine().trim();
                     if (linkedHashMap.containsKey(group)) {
@@ -138,6 +146,9 @@ public class TxtSubscribe {
                         try {
                             jsonobj.addProperty("name", str2);
                             jsonobj.add("urls", jsonarr3);
+                            if (tvgLogoMap.containsKey(str2)) {
+                                jsonobj.addProperty("logo", tvgLogoMap.get(str2));
+                            }
                         } catch (Throwable e) {
                         }
                         jsonarr2.add(jsonobj);

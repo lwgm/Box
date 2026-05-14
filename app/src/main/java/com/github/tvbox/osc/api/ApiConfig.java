@@ -27,6 +27,7 @@ import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.M3U8;
 import com.github.tvbox.osc.util.MD5;
 import com.github.tvbox.osc.util.FileUtils;
+import com.github.tvbox.osc.util.OpenListUtil;
 import com.github.tvbox.osc.util.VideoParseRuler;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -174,6 +175,52 @@ public class ApiConfig {
         }
         System.out.println("API URL :" + configUrl);
         String configKey = TempKey;
+
+        // openlist模式：先登录获取token，再通过fs/get获取raw_url，最后下载配置内容
+        String sourceMode = Hawk.get(HawkConfig.API_MODE, "默认");
+        String sourceUser = Hawk.get(HawkConfig.API_SOURCE_USER, "");
+        String sourcePass = Hawk.get(HawkConfig.API_SOURCE_PASS, "");
+        if ("openlist".equals(sourceMode)) {
+            OpenListUtil.fetchConfig(apiUrl, sourceUser, sourcePass, new OpenListUtil.OpenListCallback() {
+                @Override
+                public void onSuccess(String content) {
+                    try {
+                        parseJson(apiUrl, content);
+                        try {
+                            File cacheDir = cache.getParentFile();
+                            if (!cacheDir.exists()) cacheDir.mkdirs();
+                            if (cache.exists()) cache.delete();
+                            FileOutputStream fos = new FileOutputStream(cache);
+                            fos.write(content.getBytes("UTF-8"));
+                            fos.flush();
+                            fos.close();
+                        } catch (Throwable th) {
+                            th.printStackTrace();
+                        }
+                        callback.success();
+                    } catch (Throwable th) {
+                        th.printStackTrace();
+                        callback.error("解析配置失败");
+                    }
+                }
+
+                @Override
+                public void onError(String msg) {
+                    if (cache.exists()) {
+                        try {
+                            parseJson(apiUrl, cache);
+                            callback.success();
+                            return;
+                        } catch (Throwable th) {
+                            th.printStackTrace();
+                        }
+                    }
+                    callback.error(msg);
+                }
+            });
+            return;
+        }
+
         OkGo.<String>get(configUrl)
                 .headers("User-Agent", userAgent)
                 .headers("Accept", requestAccept)
@@ -709,6 +756,9 @@ public class ApiConfig {
                 JsonObject obj = (JsonObject) channelElement;
                 LiveChannelItem liveChannelItem = new LiveChannelItem();
                 liveChannelItem.setChannelName(obj.get("name").getAsString().trim());
+                if (obj.has("logo")) {
+                    liveChannelItem.setChannelLogo(obj.get("logo").getAsString().trim());
+                }
                 liveChannelItem.setChannelIndex(channelIndex++);
                 liveChannelItem.setChannelNum(++channelNum);
                 ArrayList<String> urls = DefaultConfig.safeJsonStringList(obj, "urls");

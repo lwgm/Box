@@ -54,6 +54,7 @@ import com.github.tvbox.osc.util.FastClickCheckUtil;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.HawkUtils;
 import com.github.tvbox.osc.util.JavaUtil;
+import com.github.tvbox.osc.util.OpenListUtil;
 import com.github.tvbox.osc.util.live.TxtSubscribe;
 import com.google.gson.JsonArray;
 import com.lzy.okgo.OkGo;
@@ -775,7 +776,7 @@ public class LivePlayActivity extends BaseActivity {
             String savedEpgKey = channel_Name.getChannelName() + "_" + epgDateAdapter.getItem(epgDateAdapter.getSelectedIndex()).getDatePresented();
             if (hsEpg.containsKey(savedEpgKey)) {
                 String[] epgInfo = EpgUtil.getEpgInfo(channel_Name.getChannelName());
-                getTvLogo(channel_Name.getChannelName(), epgInfo == null ? null : epgInfo[0]);
+                getTvLogo(channel_Name, epgInfo == null ? null : epgInfo[0]);
                 ArrayList arrayList = (ArrayList) hsEpg.get(savedEpgKey);
                 if (arrayList != null && arrayList.size() > 0) {
                     Date date = new Date();
@@ -814,7 +815,12 @@ public class LivePlayActivity extends BaseActivity {
     private List<Epginfo> epgdata = new ArrayList<>();
 
     // Get Channel Logo
-    private void getTvLogo(String channelName, String logoUrl) {
+    private void getTvLogo(LiveChannelItem channelItem, String epgLogoUrl) {
+        // 优先使用M3U中的tvg-logo，其次使用EPG中的logo
+        String logoUrl = epgLogoUrl;
+        if (channelItem != null && channelItem.getChannelLogo() != null && !channelItem.getChannelLogo().isEmpty()) {
+            logoUrl = channelItem.getChannelLogo();
+        }
         // takagen99 : Use Glide instead
         RequestOptions options = new RequestOptions();
         options.diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
@@ -832,11 +838,32 @@ public class LivePlayActivity extends BaseActivity {
         timeFormat.setTimeZone(TimeZone.getTimeZone("GMT+8:00"));
         String[] epgInfo = EpgUtil.getEpgInfo(channelName);
         String epgTagName = channelName;
-        getTvLogo(channelName, epgInfo == null ? null : epgInfo[0]);
+        getTvLogo(channel_Name, epgInfo == null ? null : epgInfo[0]);
         if (epgInfo != null && !epgInfo[1].isEmpty()) {
             epgTagName = epgInfo[1];
         }
         epgListAdapter.CanBack(currentLiveChannelItem.getinclude_back());
+
+        // EPG模式检查：openlist走登录+raw_url流程
+        String epgMode = Hawk.get(HawkConfig.EPG_MODE, "默认");
+        String epgBaseUrl = Hawk.get(HawkConfig.EPG_URL, "");
+        if ("openlist".equals(epgMode) && !epgBaseUrl.isEmpty()) {
+            String srcUser = Hawk.get(HawkConfig.API_SOURCE_USER, "");
+            String srcPass = Hawk.get(HawkConfig.API_SOURCE_PASS, "");
+            OpenListUtil.fetchContent(epgBaseUrl, epgMode, srcUser, srcPass, new OpenListUtil.OpenListCallback() {
+                @Override
+                public void onSuccess(String content) {
+                    parseEpgResponse(date, channelName, content);
+                }
+
+                @Override
+                public void onError(String msg) {
+                    showEpg(date, new ArrayList());
+                    showBottomEpg();
+                }
+            });
+            return;
+        }
 
         String epgUrl;
         if (epgStringAddress.contains("{name}") && epgStringAddress.contains("{date}")) {
@@ -846,29 +873,7 @@ public class LivePlayActivity extends BaseActivity {
         }
         OkGo.<String>get(epgUrl).execute(new StringCallback() {
             public void onSuccess(Response<String> response) {
-                String paramString = response.body();
-                ArrayList arrayList = new ArrayList();
-
-                try {
-                    if (paramString.contains("epg_data")) {
-                        final JSONArray jSONArray = new JSONObject(paramString).optJSONArray("epg_data");
-                        if (jSONArray != null)
-                            for (int b = 0; b < jSONArray.length(); b++) {
-                                JSONObject jSONObject = jSONArray.getJSONObject(b);
-                                Epginfo epgbcinfo = new Epginfo(date, jSONObject.optString("title"), date, jSONObject.optString("start"), jSONObject.optString("end"), b);
-                                arrayList.add(epgbcinfo);
-                            }
-                    }
-
-                } catch (JSONException jSONException) {
-                    jSONException.printStackTrace();
-                }
-                showEpg(date, arrayList);
-
-                String savedEpgKey = channelName + "_" + epgDateAdapter.getItem(epgDateAdapter.getSelectedIndex()).getDatePresented();
-                if (!hsEpg.contains(savedEpgKey))
-                    hsEpg.put(savedEpgKey, arrayList);
-                showBottomEpg();
+                parseEpgResponse(date, channelName, response.body());
             }
 
             public void onFailure(int i, String str) {
@@ -876,6 +881,29 @@ public class LivePlayActivity extends BaseActivity {
                 showBottomEpg();
             }
         });
+    }
+
+    private void parseEpgResponse(Date date, String channelName, String paramString) {
+        ArrayList arrayList = new ArrayList();
+        try {
+            if (paramString.contains("epg_data")) {
+                final JSONArray jSONArray = new JSONObject(paramString).optJSONArray("epg_data");
+                if (jSONArray != null)
+                    for (int b = 0; b < jSONArray.length(); b++) {
+                        JSONObject jSONObject = jSONArray.getJSONObject(b);
+                        Epginfo epgbcinfo = new Epginfo(date, jSONObject.optString("title"), date, jSONObject.optString("start"), jSONObject.optString("end"), b);
+                        arrayList.add(epgbcinfo);
+                    }
+            }
+        } catch (JSONException jSONException) {
+            jSONException.printStackTrace();
+        }
+        showEpg(date, arrayList);
+
+        String savedEpgKey = channelName + "_" + epgDateAdapter.getItem(epgDateAdapter.getSelectedIndex()).getDatePresented();
+        if (!hsEpg.contains(savedEpgKey))
+            hsEpg.put(savedEpgKey, arrayList);
+        showBottomEpg();
     }
 
     private boolean replayChannel() {
@@ -1753,6 +1781,27 @@ public class LivePlayActivity extends BaseActivity {
             return;
         }
         showLoading();
+
+        // 检查直播源模式，openlist走登录+raw_url流程
+        String liveMode = Hawk.get(HawkConfig.LIVE_MODE, "默认");
+        if ("openlist".equals(liveMode)) {
+            String srcUser = Hawk.get(HawkConfig.API_SOURCE_USER, "");
+            String srcPass = Hawk.get(HawkConfig.API_SOURCE_PASS, "");
+            OpenListUtil.fetchContent(url, liveMode, srcUser, srcPass, new OpenListUtil.OpenListCallback() {
+                @Override
+                public void onSuccess(String content) {
+                    processLiveContent(content);
+                }
+
+                @Override
+                public void onError(String msg) {
+                    Toast.makeText(App.getInstance(), "openlist直播获取失败: " + msg, Toast.LENGTH_LONG).show();
+                    finish();
+                }
+            });
+            return;
+        }
+
         OkGo.<String>get(url).execute(new AbsCallback<String>() {
 
             @Override
@@ -1762,28 +1811,7 @@ public class LivePlayActivity extends BaseActivity {
 
             @Override
             public void onSuccess(Response<String> response) {
-                JsonArray livesArray;
-                LinkedHashMap<String, LinkedHashMap<String, ArrayList<String>>> linkedHashMap = new LinkedHashMap<>();
-                TxtSubscribe.parse(linkedHashMap, response.body());
-                livesArray = TxtSubscribe.live2JsonArray(linkedHashMap);
-
-                ApiConfig.get().loadLives(livesArray);
-                List<LiveChannelGroup> list = ApiConfig.get().getChannelGroupList();
-                if (list.isEmpty()) {
-                    Toast.makeText(App.getInstance(), getString(R.string.act_live_play_empty_channel), Toast.LENGTH_SHORT).show();
-                    finish();
-                    return;
-                }
-                liveChannelGroupList.clear();
-                liveChannelGroupList.addAll(list);
-
-                mHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        LivePlayActivity.this.showSuccess();
-                        initLiveState();
-                    }
-                });
+                processLiveContent(response.body());
             }
 
             @Override
@@ -1791,6 +1819,31 @@ public class LivePlayActivity extends BaseActivity {
                 super.onError(response);
                 Toast.makeText(App.getInstance(), getString(R.string.act_live_play_network_error), Toast.LENGTH_LONG).show();
                 finish();
+            }
+        });
+    }
+
+    private void processLiveContent(String content) {
+        JsonArray livesArray;
+        LinkedHashMap<String, LinkedHashMap<String, ArrayList<String>>> linkedHashMap = new LinkedHashMap<>();
+        TxtSubscribe.parse(linkedHashMap, content);
+        livesArray = TxtSubscribe.live2JsonArray(linkedHashMap);
+
+        ApiConfig.get().loadLives(livesArray);
+        List<LiveChannelGroup> list = ApiConfig.get().getChannelGroupList();
+        if (list.isEmpty()) {
+            Toast.makeText(App.getInstance(), getString(R.string.act_live_play_empty_channel), Toast.LENGTH_SHORT).show();
+            finish();
+            return;
+        }
+        liveChannelGroupList.clear();
+        liveChannelGroupList.addAll(list);
+
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                LivePlayActivity.this.showSuccess();
+                initLiveState();
             }
         });
     }
