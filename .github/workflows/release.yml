@@ -13,6 +13,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # ✅ 添加这行，允许创建 Release
     
     steps:
       - name: Checkout your fork
@@ -64,7 +66,6 @@ jobs:
         
       - name: Setup Release Signing
         run: |
-          # 创建签名配置
           signingConfigs='ICAgIHNpZ25pbmdDb25maWdzIHtcCiAgICAgICAgaWYgKHByb2plY3QuaGFzUHJvcGVydHkoIlJFTEVBU0VfU1RPUkVfRklMRSIpKSB7XAogICAgICAgICAgICBteUNvbmZpZyB7XAogICAgICAgICAgICAgICAgc3RvcmVGaWxlIGZpbGUoUkVMRUFTRV9TVE9SRV9GSUxFKVwKICAgICAgICAgICAgICAgIHN0b3JlUGFzc3dvcmQgUkVMRUFTRV9TVE9SRV9QQVNTV09SRFwKICAgICAgICAgICAgICAgIGtleUFsaWFzIFJFTEVBU0VfS0VZX0FMSUFTXAogICAgICAgICAgICAgICAga2V5UGFzc3dvcmQgUkVMRUFTRV9LRVlfUEFTU1dPUkRcCiAgICAgICAgICAgICAgICB2MVNpZ25pbmdFbmFibGVkIHRydWVcCiAgICAgICAgICAgICAgICB2MlNpZ25pbmdFbmFibGVkIHRydWVcCiAgICAgICAgICAgICAgICBlbmFibGVWM1NpZ25pbmcgPSB0cnVlXAogICAgICAgICAgICAgICAgZW5hYmxlVjRTaWduaW5nID0gdHJ1ZVwKICAgICAgICAgICAgfVwKICAgICAgICB9XAogICAgfVwKXA=='
           signingConfig='ICAgICAgICAgICAgaWYgKHByb2plY3QuaGFzUHJvcGVydHkoIlJFTEVBU0VfU1RPUkVfRklMRSIpKSB7XAogICAgICAgICAgICAgICAgc2lnbmluZ0NvbmZpZyBzaWduaW5nQ29uZmlncy5teUNvbmZpZ1wKICAgICAgICAgICAgfVwK'
           signingConfigs="$(echo "$signingConfigs" |base64 -d )"
@@ -78,10 +79,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          # 从 secrets 解码 keystore 文件
           echo "$KEYSTORE_BASE64" | base64 -d > app/my-release-key.jks
-          
-          # 配置 gradle.properties
           echo "RELEASE_STORE_FILE=./my-release-key.jks" >> gradle.properties
           echo "RELEASE_KEY_ALIAS=$KEY_ALIAS" >> gradle.properties
           echo "RELEASE_STORE_PASSWORD=$KEYSTORE_PASSWORD" >> gradle.properties
@@ -92,23 +90,38 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --build-cache --parallel --daemon
           
-      - name: Prepare APK
+      - name: Find and Prepare APK
         run: |
           mkdir -p apk/
-          # 查找 release APK（排除 unsigned）
-          for file in `find . -path "*/build/outputs/apk/release/*.apk" -print`; do
-            if [[ "$file" != *"unsigned"* ]]; then
+          # ✅ 修复：搜索所有可能的 APK 路径
+          echo "Searching for APK files..."
+          find app/build/outputs/apk -name "*.apk" -type f
+          
+          # 找到第一个非测试的 APK（排除 non-minified 和 test）
+          for file in $(find app/build/outputs/apk -name "*.apk" -type f | grep -v "non-minified" | grep -v "test"); do
+            if [[ -f "$file" ]]; then
               cp "$file" "apk/Box_MyFork_${{ env.tag }}.apk"
-              echo "APK created: apk/Box_MyFork_${{ env.tag }}.apk"
+              echo "✅ APK copied from: $file"
+              echo "APK_PATH=apk/Box_MyFork_${{ env.tag }}.apk" >> $GITHUB_ENV
               break
             fi
           done
+          
+          # 验证 APK 是否存在
+          if [ ! -f "apk/Box_MyFork_${{ env.tag }}.apk" ]; then
+            echo "❌ No APK found!"
+            ls -la app/build/outputs/apk/
+            exit 1
+          fi
+          
+          ls -la apk/
           
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
           name: Box-MyFork-${{ env.tag }}
           path: apk/*.apk
+          if-no-files-found: error  # ✅ 如果没找到文件就报错
           
       - name: Create Release
         if: ${{ !inputs.dontpublish }}
@@ -122,3 +135,4 @@ jobs:
             - Build Time: ${{ env.tag }}
           artifacts: apk/*.apk
           allowUpdates: true
+          token: ${{ secrets.GITHUB_TOKEN }}  # ✅ 显式指定 token
